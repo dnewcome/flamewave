@@ -669,10 +669,12 @@ def make_cloud_material():
 
     out   = N("ShaderNodeOutputMaterial", 900, 0)
     vol   = N("ShaderNodeVolumePrincipled", 600, 0)
-    vol.inputs["Density"].default_value          = 0.0   # driven by noise
-    vol.inputs["Anisotropy"].default_value        = 0.3   # forward scattering
-    vol.inputs["Absorption Color"].default_value  = (0.95, 0.95, 1.0, 1.0)
-    vol.inputs["Scatter Color"].default_value     = (1.0, 1.0, 1.0, 1.0)
+    vol.inputs["Density"].default_value         = 0.0   # driven by noise
+    vol.inputs["Anisotropy"].default_value       = 0.3   # forward scattering
+    vol.inputs["Absorption Color"].default_value = (0.95, 0.95, 1.0, 1.0)
+    # "Scatter Color" in 3.x+, plain "Color" in 2.x
+    scatter_key = "Scatter Color" if "Scatter Color" in vol.inputs else "Color"
+    vol.inputs[scatter_key].default_value        = (1.0, 1.0, 1.0, 1.0)
     links.new(vol.outputs["Volume"], out.inputs["Volume"])
 
     coord   = N("ShaderNodeTexCoord",   -700, 100)
