@@ -535,12 +535,23 @@ w_out = wnodes.new("ShaderNodeOutputWorld")
 w_out.location = (300, 0)
 sky_tex = wnodes.new("ShaderNodeTexSky")
 sky_tex.location = (0, 0)
-sky_tex.sky_type       = 'NISHITA'
-sky_tex.sun_elevation  = math.radians(SUN_ELEVATION_DEG)
-sky_tex.sun_rotation   = math.radians(SUN_ROTATION_DEG)
-sky_tex.air_density    = AIR_DENSITY
-sky_tex.dust_density   = DUST_DENSITY
-sky_tex.ozone_density  = OZONE_DENSITY
+# Nishita (2.90+) gives the most accurate desert sky; fall back to
+# Hosek-Wilkie which is physically-based and available in all versions.
+if hasattr(sky_tex, 'sky_type'):
+    if 'NISHITA' in sky_tex.bl_rna.properties['sky_type'].enum_items.keys():
+        sky_tex.sky_type      = 'NISHITA'
+        sky_tex.sun_elevation = math.radians(SUN_ELEVATION_DEG)
+        sky_tex.sun_rotation  = math.radians(SUN_ROTATION_DEG)
+        sky_tex.air_density   = AIR_DENSITY
+        sky_tex.dust_density  = DUST_DENSITY
+        sky_tex.ozone_density = OZONE_DENSITY
+    else:
+        # Hosek-Wilkie fallback (pre-2.90 or custom builds)
+        sky_tex.sky_type      = 'HOSEK_WILKIE'
+        sky_tex.sun_elevation = math.radians(SUN_ELEVATION_DEG)
+        sky_tex.sun_rotation  = math.radians(SUN_ROTATION_DEG)
+        sky_tex.turbidity     = 4.0   # 2=crystal clear → 10=very hazy; 4 ≈ playa dust
+        sky_tex.ground_albedo = 0.35  # reflective alkali flat
 wlinks.new(sky_tex.outputs["Color"], w_out.inputs["Surface"])
 
 # Sun lamp — matches Nishita sky direction so shadows are consistent.
