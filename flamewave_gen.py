@@ -67,8 +67,122 @@ MAT_POST     = mat("Post",     (0.35, 0.35, 0.40), metallic=0.85, roughness=0.5)
 MAT_SPRING   = mat("Spring",   (0.72, 0.65, 0.48), metallic=0.95, roughness=0.25)
 MAT_CHAIN    = mat("Chain",    (0.28, 0.28, 0.32), metallic=0.95, roughness=0.2)
 MAT_POOFER   = mat("Poofer",   (0.80, 0.60, 0.18), metallic=1.0,  roughness=0.15)
-MAT_PLAYA    = mat("Playa",    (0.88, 0.83, 0.72), metallic=0.0,  roughness=0.95)
 MAT_GROUND_PLATE = mat("GroundPlate", (0.4, 0.4, 0.45), metallic=0.8, roughness=0.6)
+
+
+def make_playa_material():
+    """
+    Stochastic texture bombing for the playa ground plane.
+
+    A Voronoi texture divides the surface into cells; each cell receives a
+    random UV offset before sampling the ground texture maps. This breaks up
+    tiling repetition across the large ground plane without requiring a huge
+    texture resolution.
+
+    Node graph:
+        TexCoord → Mapping (overall scale) ──────────────────────────────────┐
+                                           → Voronoi (cell random color)     │
+                                             → add offset to scaled UV       │
+                                             → Image Texture (Color)  → BSDF │
+                                             → Image Texture (Rough)  → BSDF │
+                                             → Image Texture (Normal) → Normal Map → BSDF
+
+    TEXTURE PATHS — replace the three PLACEHOLDER strings below with your
+    actual file paths, e.g.:
+        COLOR_TEX  = "/home/dan/textures/Ground013_4K_Color.jpg"
+        ROUGH_TEX  = "/home/dan/textures/Ground013_4K_Roughness.jpg"
+        NORMAL_TEX = "/home/dan/textures/Ground013_4K_NormalGL.jpg"
+    """
+
+    COLOR_TEX  = "PLACEHOLDER_Color.jpg"
+    ROUGH_TEX  = "PLACEHOLDER_Roughness.jpg"
+    NORMAL_TEX = "PLACEHOLDER_NormalGL.jpg"
+
+    # Overall UV scale — higher = texture tiles more densely
+    TEX_SCALE       = 8.0
+    # Voronoi cell size relative to scaled UV (controls how large each
+    # randomly-offset patch is; 1.0 = one patch per texture tile)
+    VORONOI_SCALE   = 1.0
+    # How much the random offset can shift UVs (0–1 range; 1.0 = full tile)
+    OFFSET_STRENGTH = 1.0
+
+    m = bpy.data.materials.new(name="Playa")
+    m.use_nodes = True
+    nodes = m.node_tree.nodes
+    links = m.node_tree.links
+    nodes.clear()
+
+    def N(node_type, x, y):
+        n = nodes.new(node_type)
+        n.location = (x, y)
+        return n
+
+    # ── Outputs ──
+    out      = N("ShaderNodeOutputMaterial",  800,  0)
+    bsdf     = N("ShaderNodeBsdfPrincipled",  400,  0)
+    links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+
+    # ── Coordinates & overall scale ──
+    coord    = N("ShaderNodeTexCoord",       -900,  100)
+    mapping  = N("ShaderNodeMapping",        -700,  100)
+    mapping.inputs["Scale"].default_value    = (TEX_SCALE, TEX_SCALE, TEX_SCALE)
+    links.new(coord.outputs["UV"], mapping.inputs["Vector"])
+
+    # ── Voronoi — provides per-cell random color used as UV offset ──
+    voronoi  = N("ShaderNodeTexVoronoi",     -500,  300)
+    voronoi.voronoi_dimensions = "2D"
+    voronoi.feature             = "F1"
+    voronoi.inputs["Scale"].default_value      = VORONOI_SCALE
+    voronoi.inputs["Randomness"].default_value = 1.0
+    links.new(mapping.outputs["Vector"], voronoi.inputs["Vector"])
+
+    # ── Scale the random color down to use as a subtle offset ──
+    offset_scale = N("ShaderNodeVectorMath",  -300,  300)
+    offset_scale.operation = "SCALE"
+    offset_scale.inputs["Scale"].default_value = OFFSET_STRENGTH
+    links.new(voronoi.outputs["Color"], offset_scale.inputs["Vector"])
+
+    # ── Add offset to the scaled UV ──
+    add_offset = N("ShaderNodeVectorMath",   -100,  200)
+    add_offset.operation = "ADD"
+    links.new(mapping.outputs["Vector"],       add_offset.inputs[0])
+    links.new(offset_scale.outputs["Vector"],  add_offset.inputs[1])
+
+    # ── Image textures (placeholders) ──
+    def img_node(path, label, x, y, colorspace="sRGB"):
+        n = N("ShaderNodeTexImage", x, y)
+        n.label = label
+        try:
+            img = bpy.data.images.load(path, check_existing=True)
+            img.colorspace_settings.name = colorspace
+            n.image = img
+        except Exception:
+            # Path not found — node stays empty, renders magenta as reminder
+            pass
+        links.new(add_offset.outputs["Vector"], n.inputs["Vector"])
+        return n
+
+    tex_color  = img_node(COLOR_TEX,  "Playa Color",    100,  200)
+    tex_rough  = img_node(ROUGH_TEX,  "Playa Roughness", 100,   0, colorspace="Non-Color")
+    tex_normal = img_node(NORMAL_TEX, "Playa Normal",    100, -200, colorspace="Non-Color")
+
+    # ── Normal map ──
+    normal_map = N("ShaderNodeNormalMap",  350, -150)
+    normal_map.inputs["Strength"].default_value = 0.6
+    links.new(tex_normal.outputs["Color"], normal_map.inputs["Color"])
+
+    # ── Wire into BSDF ──
+    links.new(tex_color.outputs["Color"],  bsdf.inputs["Base Color"])
+    links.new(tex_rough.outputs["Color"],  bsdf.inputs["Roughness"])
+    links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+
+    # Playa is very non-metallic, slightly subsurface-ish
+    bsdf.inputs["Metallic"].default_value  = 0.0
+    bsdf.inputs["Roughness"].default_value = 0.9  # fallback if texture missing
+
+    return m
+
+MAT_PLAYA = make_playa_material()
 
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
