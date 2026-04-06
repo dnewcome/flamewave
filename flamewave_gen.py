@@ -623,6 +623,135 @@ mat_mtns = mat("Mountains", (0.22, 0.20, 0.17), metallic=0.0, roughness=0.92)
 assign_mat(obj_mtns, mat_mtns)
 
 
+# ── CLOUDS ────────────────────────────────────────────────────────────────────
+#
+# Volumetric clouds using sampled noise — two stacked Noise Texture nodes
+# (coarse shape + fine turbulent detail) multiplied together and fed through
+# a ColorRamp into a Principled Volume shader.
+#
+# Each cloud is a flat box domain at cloud height. Several are scattered
+# across the sky at different positions, sizes, and slight height offsets
+# for a natural cumulus scatter appropriate to a hot desert afternoon.
+#
+# NOTE: volumetric rendering adds render time. If previewing in solid/LookDev
+# mode the volumes show as plain boxes — switch to Rendered view to see them.
+# Lower CLOUD_STEP_SIZE for sharper detail (slower) or raise it for faster
+# previews (puffier/softer edges).
+#
+# Tuning:
+#   CLOUD_HEIGHT       — base altitude of cloud layer
+#   CLOUD_DENSITY      — overall opacity (0.02–0.08 for scattered desert cumulus)
+#   RAMP_POS           — ColorRamp black point; push right to thin clouds out,
+#                        left to make them denser/more solid
+#   NOISE_SCALE_COARSE — large cloud shape frequency
+#   NOISE_SCALE_DETAIL — turbulent wisps on the edges
+
+CLOUD_HEIGHT        = 120.0   # metres above ground
+CLOUD_STEP_SIZE     = 0.8     # volume step size (lower = more detail, slower)
+CLOUD_DENSITY       = 0.04    # scatter density
+NOISE_SCALE_COARSE  = 0.6
+NOISE_SCALE_DETAIL  = 2.8
+RAMP_POS            = 0.45    # density threshold — raise to thin clouds out
+
+
+def make_cloud_material():
+    m = bpy.data.materials.new("Cloud")
+    m.use_nodes = True
+    m.blend_method = 'HASHED'
+    nodes = m.node_tree.nodes
+    links = m.node_tree.links
+    nodes.clear()
+
+    def N(t, x, y):
+        n = nodes.new(t)
+        n.location = (x, y)
+        return n
+
+    out   = N("ShaderNodeOutputMaterial", 900, 0)
+    vol   = N("ShaderNodeVolumePrincipled", 600, 0)
+    vol.inputs["Density"].default_value          = 0.0   # driven by noise
+    vol.inputs["Anisotropy"].default_value        = 0.3   # forward scattering
+    vol.inputs["Absorption Color"].default_value  = (0.95, 0.95, 1.0, 1.0)
+    vol.inputs["Scatter Color"].default_value     = (1.0, 1.0, 1.0, 1.0)
+    links.new(vol.outputs["Volume"], out.inputs["Volume"])
+
+    coord   = N("ShaderNodeTexCoord",   -700, 100)
+    mapping = N("ShaderNodeMapping",    -500, 100)
+
+    # Coarse noise — overall cloud shape
+    noise_c = N("ShaderNodeTexNoise", -250, 200)
+    noise_c.inputs["Scale"].default_value      = NOISE_SCALE_COARSE
+    noise_c.inputs["Detail"].default_value     = 6.0
+    noise_c.inputs["Roughness"].default_value  = 0.65
+    noise_c.inputs["Distortion"].default_value = 0.3
+    links.new(mapping.outputs["Vector"], noise_c.inputs["Vector"])
+
+    # Fine noise — wispy turbulent detail
+    noise_f = N("ShaderNodeTexNoise", -250, 0)
+    noise_f.inputs["Scale"].default_value      = NOISE_SCALE_DETAIL
+    noise_f.inputs["Detail"].default_value     = 8.0
+    noise_f.inputs["Roughness"].default_value  = 0.75
+    noise_f.inputs["Distortion"].default_value = 0.5
+    links.new(mapping.outputs["Vector"], noise_f.inputs["Vector"])
+
+    # Multiply coarse × detail to get cloud density field
+    multiply = N("ShaderNodeMath", 50, 100)
+    multiply.operation = "MULTIPLY"
+    links.new(noise_c.outputs["Fac"], multiply.inputs[0])
+    links.new(noise_f.outputs["Fac"], multiply.inputs[1])
+
+    # ColorRamp — controls density threshold and falloff
+    ramp = N("ShaderNodeValToRGB", 250, 100)
+    ramp.color_ramp.interpolation = 'EASE'
+    ramp.color_ramp.elements[0].position = RAMP_POS
+    ramp.color_ramp.elements[0].color    = (0.0, 0.0, 0.0, 1.0)
+    ramp.color_ramp.elements[1].position = min(RAMP_POS + 0.35, 1.0)
+    ramp.color_ramp.elements[1].color    = (1.0, 1.0, 1.0, 1.0)
+    links.new(multiply.outputs["Value"], ramp.inputs["Fac"])
+
+    # Scale ramp output to density
+    density_scale = N("ShaderNodeMath", 480, 100)
+    density_scale.operation = "MULTIPLY"
+    density_scale.inputs[1].default_value = CLOUD_DENSITY
+    links.new(ramp.outputs["Color"], density_scale.inputs[0])
+    links.new(density_scale.outputs["Value"], vol.inputs["Density"])
+
+    links.new(coord.outputs["Object"], mapping.inputs["Vector"])
+    return m
+
+
+def add_cloud(cx, cy, width, depth, thickness, height_offset=0.0, seed_offset=0):
+    """Place a single cloud volume box in the sky."""
+    z = CLOUD_HEIGHT + height_offset
+    bpy.ops.mesh.primitive_cube_add(location=(cx, cy, z))
+    obj = bpy.context.object
+    obj.name = f"Cloud_{seed_offset:02d}"
+    obj.scale = (width / 2, depth / 2, thickness / 2)
+    bpy.ops.object.transform_apply(scale=True)
+
+    cloud_mat = make_cloud_material()
+    assign_mat(obj, cloud_mat)
+
+    # Per-cloud noise offset so they don't all look identical
+    for node in obj.material_slots[0].material.node_tree.nodes:
+        if node.type == 'MAPPING':
+            node.inputs["Location"].default_value = (
+                seed_offset * 3.7,
+                seed_offset * 1.3,
+                0.0
+            )
+    return obj
+
+
+# Scattered cumulus — positions chosen to frame the sculpture from camera
+# without blocking the sky directly overhead
+add_cloud( 60,  120, 80, 40, 18,  0.0, seed_offset=0)
+add_cloud(-90,   80, 60, 30, 14,  8.0, seed_offset=1)
+add_cloud( 30, -140, 70, 35, 20, -5.0, seed_offset=2)
+add_cloud(140,   30, 55, 28, 16,  3.0, seed_offset=3)
+add_cloud(-50,  160, 90, 45, 22,  6.0, seed_offset=4)
+
+
 # ── CAMERA ────────────────────────────────────────────────────────────────────
 
 # Three-quarter view camera
