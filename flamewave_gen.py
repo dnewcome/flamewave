@@ -503,7 +503,116 @@ for label, sign in [("L", -1), ("R", 1)]:
     assign_mat(striker, MAT_STRIKER)
 
 
-# ── CAMERA & LIGHTING ─────────────────────────────────────────────────────────
+# ── SKY & WORLD ───────────────────────────────────────────────────────────────
+#
+# Nishita sky model — physically-based sun/atmosphere. Adjust SUN_ELEVATION
+# and SUN_ROTATION to change time of day and direction.
+#
+# Black Rock Desert sits at ~3900 ft elevation in a high-desert basin.
+# The surrounding ranges (Calico Hills NE, Jackson Mtns N, Kamma Mtns S)
+# are 10–20 miles out and rise maybe 2000 ft above the playa floor, so they
+# sit low on the horizon — modelled as a gentle ridgeline ring below.
+#
+# These parameters match late afternoon (golden hour) facing roughly SW,
+# which gives the dramatic side-lighting typical of BRC event photography.
+
+SUN_ELEVATION_DEG = 22.0   # degrees above horizon (22 = ~2hrs before sunset)
+SUN_ROTATION_DEG  = 230.0  # compass bearing of sun (230 = SW)
+AIR_DENSITY       = 1.0
+DUST_DENSITY      = 0.8    # playa dust haze
+OZONE_DENSITY     = 1.0
+
+world = bpy.context.scene.world
+if world is None:
+    world = bpy.data.worlds.new("World")
+    bpy.context.scene.world = world
+world.use_nodes = True
+wnodes = world.node_tree.nodes
+wlinks = world.node_tree.links
+wnodes.clear()
+
+w_out = wnodes.new("ShaderNodeOutputWorld")
+w_out.location = (300, 0)
+sky_tex = wnodes.new("ShaderNodeTexSky")
+sky_tex.location = (0, 0)
+sky_tex.sky_type       = 'NISHITA'
+sky_tex.sun_elevation  = math.radians(SUN_ELEVATION_DEG)
+sky_tex.sun_rotation   = math.radians(SUN_ROTATION_DEG)
+sky_tex.air_density    = AIR_DENSITY
+sky_tex.dust_density   = DUST_DENSITY
+sky_tex.ozone_density  = OZONE_DENSITY
+wlinks.new(sky_tex.outputs["Color"], w_out.inputs["Surface"])
+
+# Sun lamp — matches Nishita sky direction so shadows are consistent.
+# Use for EEVEE; Cycles can render directly from the sky texture.
+bpy.ops.object.light_add(type='SUN', location=(0, 0, 10))
+sun_lamp = bpy.context.object
+sun_lamp.name = "Sun"
+sun_lamp.data.energy = 5.0
+sun_lamp.data.color  = (1.0, 0.95, 0.82)   # warm late-afternoon tint
+sun_lamp.data.angle  = math.radians(0.53)   # solar disk angular size
+sun_lamp.rotation_euler = (
+    math.radians(90 - SUN_ELEVATION_DEG),
+    0,
+    math.radians(SUN_ROTATION_DEG + 90)
+)
+
+
+# ── MOUNTAIN RANGE ────────────────────────────────────────────────────────────
+#
+# Low ridgeline ring representing the distant mountain ranges visible from
+# Black Rock Desert. Placed at MOUNTAIN_RADIUS meters from origin.
+# Heights are generated from summed sine waves seeded to give a plausible
+# Nevada Basin-and-Range silhouette — gentle, broad ridges, not sharp peaks.
+
+import bmesh, random
+
+MOUNTAIN_RADIUS   = 350    # metres — far enough to sit at horizon
+MOUNTAIN_SEGMENTS = 180    # horizontal resolution of the ring
+MOUNTAIN_BASE_Z   = -3.0   # below ground so bottom edge never shows
+
+random.seed(7)             # fixed seed for reproducible silhouette
+
+def mountain_height(angle):
+    """Sum of sine waves giving a low, lumpy Nevada ridgeline profile."""
+    h = (
+        18 * math.sin(1.1 * angle + 0.40) +
+        22 * math.sin(1.7 * angle + 1.80) +
+        12 * math.sin(2.9 * angle + 0.95) +
+        8  * math.sin(4.3 * angle + 2.30) +
+        5  * math.sin(6.1 * angle + 1.10) +
+        3  * math.sin(9.0 * angle + 0.60) +
+        random.uniform(-2, 2)
+    )
+    return max(h + 28, 4)   # clamp so ridgeline always clears horizon
+
+mesh_mtns = bpy.data.meshes.new("Mountain_Range")
+bm = bmesh.new()
+
+verts_bot, verts_top = [], []
+for i in range(MOUNTAIN_SEGMENTS):
+    a = 2 * math.pi * i / MOUNTAIN_SEGMENTS
+    x = MOUNTAIN_RADIUS * math.cos(a)
+    y = MOUNTAIN_RADIUS * math.sin(a)
+    verts_bot.append(bm.verts.new((x, y, MOUNTAIN_BASE_Z)))
+    verts_top.append(bm.verts.new((x, y, mountain_height(a))))
+
+bm.verts.ensure_lookup_table()
+for i in range(MOUNTAIN_SEGMENTS):
+    j = (i + 1) % MOUNTAIN_SEGMENTS
+    bm.faces.new([verts_bot[i], verts_bot[j], verts_top[j], verts_top[i]])
+
+bm.to_mesh(mesh_mtns)
+bm.free()
+
+obj_mtns = bpy.data.objects.new("Mountain_Range", mesh_mtns)
+bpy.context.collection.objects.link(obj_mtns)
+
+mat_mtns = mat("Mountains", (0.22, 0.20, 0.17), metallic=0.0, roughness=0.92)
+assign_mat(obj_mtns, mat_mtns)
+
+
+# ── CAMERA ────────────────────────────────────────────────────────────────────
 
 # Three-quarter view camera
 bpy.ops.object.camera_add(
@@ -514,22 +623,6 @@ cam = bpy.context.object
 cam.name = "Camera_Main"
 cam.data.lens = 35
 bpy.context.scene.camera = cam
-
-# Key light (sun, afternoon desert)
-bpy.ops.object.light_add(type='SUN', location=(8, -6, 14))
-sun = bpy.context.object
-sun.name = "Sun_Key"
-sun.data.energy = 4.0
-sun.data.color = (1.0, 0.97, 0.88)
-sun.rotation_euler = (math.radians(40), 0, math.radians(25))
-
-# Fill light (sky bounce)
-bpy.ops.object.light_add(type='SUN', location=(-10, 5, 8))
-fill = bpy.context.object
-fill.name = "Sun_Fill"
-fill.data.energy = 0.8
-fill.data.color = (0.7, 0.82, 1.0)
-fill.rotation_euler = (math.radians(60), 0, math.radians(200))
 
 
 # ── SUMMARY ───────────────────────────────────────────────────────────────────
