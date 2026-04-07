@@ -216,7 +216,14 @@ def make_playa_material():
         pass
 
     bsdf.inputs["Metallic"].default_value  = 0.0
-    bsdf.inputs["Roughness"].default_value = 0.9
+    bsdf.inputs["Roughness"].default_value = 0.98
+    try:
+        bsdf.inputs["Specular IOR Level"].default_value = 0.0
+    except (KeyError, AttributeError):
+        try:
+            bsdf.inputs["Specular"].default_value = 0.0
+        except (KeyError, AttributeError):
+            pass
 
     return m
 
