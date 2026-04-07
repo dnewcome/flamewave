@@ -51,17 +51,16 @@ bpy.context.scene.unit_settings.length_unit = 'METERS'
 
 # Cycles + GPU — adaptive subdivision on the ground plane.
 bpy.context.scene.render.engine = 'CYCLES'
-bpy.context.scene.cycles.device = 'GPU'
-# 'feature_set' exists in some builds; in others experimental is always on
-try:
-    bpy.context.scene.cycles.feature_set = 'EXPERIMENTAL'
-except AttributeError:
-    pass
-try:
-    bpy.context.scene.cycles.dicing_rate = 2.0
-    bpy.context.scene.cycles.offscreen_dicing_scale = 4.0
-except AttributeError:
-    pass
+for _attr, _val in [
+    ('device',                  'GPU'),
+    ('feature_set',             'EXPERIMENTAL'),
+    ('dicing_rate',             2.0),
+    ('offscreen_dicing_scale',  4.0),
+]:
+    try:
+        setattr(bpy.context.scene.cycles, _attr, _val)
+    except (AttributeError, TypeError):
+        pass
 
 
 # ── MATERIALS ─────────────────────────────────────────────────────────────────
@@ -208,8 +207,10 @@ def make_playa_material():
     links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
     links.new(disp_node.outputs["Displacement"], out.inputs["Displacement"])
 
-    # Enable true displacement on the material (not just bump)
-    m.cycles.displacement_method = 'DISPLACEMENT'
+    try:
+        m.cycles.displacement_method = 'DISPLACEMENT'
+    except AttributeError:
+        pass
 
     bsdf.inputs["Metallic"].default_value  = 0.0
     bsdf.inputs["Roughness"].default_value = 0.9
