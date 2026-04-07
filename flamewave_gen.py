@@ -32,6 +32,9 @@ SPRING_RADIUS_IN    = 0.75
 SPRING_LENGTH_FT    = 1.0    # spring free length
 CHAIN_LENGTH_FT     = 4.5    # chain hanging from outer end junction
 
+MOUNTAIN_RADIUS     = 350    # metres — sets both ground plane and mountain ring size
+PLAYA_TILE_SIZE_M   = 2.5    # metres per texture tile — controls crack density
+
 # ── CONSTANTS ─────────────────────────────────────────────────────────────────
 
 FOOT = 0.3048
@@ -121,8 +124,8 @@ def make_playa_material():
     DISP_SCALE  = 0.015
     DISP_MIDLEVEL = 0.5   # grey = no displacement
 
-    # Overall UV scale — higher = texture tiles more densely
-    TEX_SCALE       = 8.0
+    # Tile scale derived from ground size and desired crack density
+    TEX_SCALE       = (MOUNTAIN_RADIUS * 2) / PLAYA_TILE_SIZE_M
     # Voronoi cell size relative to scaled UV (controls how large each
     # randomly-offset patch is; 1.0 = one patch per texture tile)
     VORONOI_SCALE   = 1.0
@@ -281,7 +284,7 @@ outer_R = Vector(( arm_len * math.cos(angle), 0, attach_h - arm_len * math.sin(a
 
 # ── GROUND ────────────────────────────────────────────────────────────────────
 
-bpy.ops.mesh.primitive_plane_add(size=25, location=(0, 0, 0))
+bpy.ops.mesh.primitive_plane_add(size=MOUNTAIN_RADIUS * 2, location=(0, 0, 0))
 ground = bpy.context.object
 ground.name = "Playa"
 assign_mat(ground, MAT_PLAYA)
@@ -626,7 +629,6 @@ sun_lamp.rotation_euler = (
 
 import bmesh, random
 
-MOUNTAIN_RADIUS   = 350    # metres — far enough to sit at horizon
 MOUNTAIN_SEGMENTS = 180    # horizontal resolution of the ring
 MOUNTAIN_BASE_Z   = -3.0   # below ground so bottom edge never shows
 
