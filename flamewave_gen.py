@@ -770,6 +770,16 @@ obj_mtns = bpy.data.objects.new("Mountain_Range", mesh_mtns)
 bpy.context.collection.objects.link(obj_mtns)
 assign_mat(obj_mtns, make_mountain_material())
 
+# Mountains are background scenery — disable shadow participation so the
+# closed ring doesn't self-shadow and doesn't cast on the scene.
+try:
+    obj_mtns.visible_shadow = False          # Blender 3.0+
+except AttributeError:
+    try:
+        obj_mtns.cycles_visibility.shadow = False   # Blender 2.8x
+    except AttributeError:
+        pass
+
 
 # ── CLOUDS ────────────────────────────────────────────────────────────────────
 #
