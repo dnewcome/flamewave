@@ -49,13 +49,19 @@ for col in list(bpy.data.collections):
 bpy.context.scene.unit_settings.system = 'METRIC'
 bpy.context.scene.unit_settings.length_unit = 'METERS'
 
-# Cycles experimental — enables adaptive subdivision on the ground plane.
-# Switch render engine to Cycles if not already set.
+# Cycles + GPU — adaptive subdivision on the ground plane.
 bpy.context.scene.render.engine = 'CYCLES'
-bpy.context.scene.cycles.feature_set = 'EXPERIMENTAL'
-bpy.context.scene.cycles.dicing_rate = 2.0        # 2px/edge — good perf on 4070
-bpy.context.scene.cycles.offscreen_dicing_scale = 4.0  # don't waste on off-screen geo
 bpy.context.scene.cycles.device = 'GPU'
+# 'feature_set' exists in some builds; in others experimental is always on
+try:
+    bpy.context.scene.cycles.feature_set = 'EXPERIMENTAL'
+except AttributeError:
+    pass
+try:
+    bpy.context.scene.cycles.dicing_rate = 2.0
+    bpy.context.scene.cycles.offscreen_dicing_scale = 4.0
+except AttributeError:
+    pass
 
 
 # ── MATERIALS ─────────────────────────────────────────────────────────────────
@@ -284,9 +290,13 @@ assign_mat(ground, MAT_PLAYA)
 # DICING_RATE: higher = fewer polygons = faster but coarser cracks.
 # 2.0 is a good balance on a 4070; drop to 1.0 for final renders.
 sub = ground.modifiers.new("Adaptive_Subdiv", 'SUBSURF')
-sub.subdivision_type = 'SIMPLE'   # flat ground doesn't need Catmull-Clark smoothing
-sub.levels = 0                     # viewport — keep low for responsiveness
-sub.render_levels = 6              # fallback for non-Cycles renders
+sub.subdivision_type = 'SIMPLE'
+sub.levels = 0
+sub.render_levels = 6
+try:
+    sub.use_adaptive_subdivision = True
+except AttributeError:
+    pass
 
 
 # ── CENTER POST ───────────────────────────────────────────────────────────────
