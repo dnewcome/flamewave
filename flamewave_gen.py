@@ -658,30 +658,29 @@ if 'NISHITA' not in sky_tex.bl_rna.properties['sky_type'].enum_items.keys():
 # Nishita handles atmospheric scattering natively — no world volume needed.
 
 # ── COMPOSITOR — glare/bloom on the sun ───────────────────────────────────────
-# Fog Glow catches any pixel above the threshold and blooms it outward,
-# giving the sun a natural atmospheric halo without any extra geometry.
-bpy.context.scene.use_nodes = True
-ctree = bpy.context.scene.node_tree
-cnodes = ctree.nodes
-clinks = ctree.links
-cnodes.clear()
+try:
+    bpy.context.scene.use_nodes = True
+    ctree = bpy.context.scene.node_tree
+    cnodes = ctree.nodes
+    clinks = ctree.links
+    cnodes.clear()
 
-rl      = cnodes.new("CompositorNodeRLayers")
-rl.location = (-300, 0)
-glare   = cnodes.new("CompositorNodeGlare")
-glare.location = (0, 0)
-glare.glare_type = 'FOG_GLOW'
-glare.threshold  = 0.6    # pixels brighter than this get the halo
-glare.size       = 8      # 1–9; higher = wider glow (slower)
-glare.quality    = 'HIGH'
-comp    = cnodes.new("CompositorNodeComposite")
-comp.location = (300, 0)
-viewer  = cnodes.new("CompositorNodeViewer")
-viewer.location = (300, -150)
+    rl    = cnodes.new("CompositorNodeRLayers");  rl.location    = (-300, 0)
+    glare = cnodes.new("CompositorNodeGlare");    glare.location = (0, 0)
+    comp  = cnodes.new("CompositorNodeComposite"); comp.location  = (300, 0)
 
-clinks.new(rl.outputs["Image"], glare.inputs["Image"])
-clinks.new(glare.outputs["Image"], comp.inputs["Image"])
-clinks.new(glare.outputs["Image"], viewer.inputs["Image"])
+    glare.glare_type = 'FOG_GLOW'
+    glare.threshold  = 0.6
+    glare.size       = 8
+    try:
+        glare.quality = 'HIGH'
+    except (AttributeError, TypeError):
+        pass  # quality enum varies by version
+
+    clinks.new(rl.outputs["Image"],    glare.inputs["Image"])
+    clinks.new(glare.outputs["Image"], comp.inputs["Image"])
+except Exception as e:
+    print(f"Compositor setup skipped: {e}")
 
 
 # ── MOUNTAIN RANGE ────────────────────────────────────────────────────────────
