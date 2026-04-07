@@ -94,9 +94,14 @@ def make_playa_material():
         NORMAL_TEX = "/home/dan/textures/Ground013_4K_NormalGL.jpg"
     """
 
-    COLOR_TEX  = "PLACEHOLDER_Color.jpg"
-    ROUGH_TEX  = "PLACEHOLDER_Roughness.jpg"
-    NORMAL_TEX = "PLACEHOLDER_NormalGL.jpg"
+    import os
+    # Use the saved .blend file's directory if available, else the repo path
+    _blend_dir = os.path.dirname(bpy.data.filepath)
+    _repo      = _blend_dir or "/home/dan/sandbox/dnewcome/flamewave"
+    _tex_dir   = os.path.join(_repo, "playa-texture")
+    COLOR_TEX  = os.path.join(_tex_dir, "Ground031_1K-JPG_Color.jpg")
+    ROUGH_TEX  = os.path.join(_tex_dir, "Ground031_1K-JPG_Roughness.jpg")
+    NORMAL_TEX = os.path.join(_tex_dir, "Ground031_1K-JPG_NormalGL.jpg")
 
     # Overall UV scale — higher = texture tiles more densely
     TEX_SCALE       = 8.0
