@@ -631,12 +631,10 @@ _sun_pos  = (
     _sun_dist * math.sin(_sun_el),
 )
 bpy.ops.mesh.primitive_uv_sphere_add(
-    radius=18, segments=16, ring_count=8, location=_sun_pos
+    radius=18, segments=64, ring_count=32, location=_sun_pos
 )
 sun_disk = bpy.context.object
 sun_disk.name = "Sun_Disk"
-sun_disk.cycles_visibility if hasattr(sun_disk, 'cycles_visibility') else None
-# Shadow-free — it's a visual stand-in only
 try:
     sun_disk.visible_shadow = False
 except AttributeError:
@@ -650,10 +648,55 @@ mat_sun.use_nodes = True
 mat_sun.node_tree.nodes.clear()
 _sout = mat_sun.node_tree.nodes.new("ShaderNodeOutputMaterial")
 _semi = mat_sun.node_tree.nodes.new("ShaderNodeEmission")
-_semi.inputs["Color"].default_value   = (1.0, 0.97, 0.85, 1.0)   # warm white
-_semi.inputs["Strength"].default_value = 800.0                    # very bright
+_semi.inputs["Color"].default_value    = (1.0, 0.97, 0.85, 1.0)
+_semi.inputs["Strength"].default_value = 600.0
 mat_sun.node_tree.links.new(_semi.outputs["Emission"], _sout.inputs["Surface"])
 sun_disk.data.materials.append(mat_sun)
+
+# ── ATMOSPHERIC HAZE — world volume scatter ───────────────────────────────────
+# Adds a small amount of volumetric scatter to the world shader so the sky
+# has depth and the sun creates a visible glow in the atmosphere.
+# HAZE_DENSITY: keep very low — 0.002–0.006 for desert, higher = thick fog.
+world = bpy.context.scene.world
+world.use_nodes = True
+_wt = world.node_tree
+_wout = next(n for n in _wt.nodes if n.type == 'OUTPUT_WORLD')
+_scatter = _wt.nodes.new("ShaderNodeVolumeScatter")
+_scatter.inputs["Color"].default_value   = (0.85, 0.88, 1.0, 1.0)  # slight blue sky tint
+_scatter.inputs["Density"].default_value = 0.003                    # light desert haze
+_wadd = _wt.nodes.new("ShaderNodeAddShader")
+_wadd.location = (200, -100)
+_scatter.location = (0, -100)
+if _wout.inputs["Volume"].links:
+    _wt.links.new(_wout.inputs["Volume"].links[0].from_socket, _wadd.inputs[0])
+_wt.links.new(_scatter.outputs["Volume"], _wadd.inputs[1])
+_wt.links.new(_wadd.outputs["Shader"], _wout.inputs["Volume"])
+
+# ── COMPOSITOR — glare/bloom on the sun ───────────────────────────────────────
+# Fog Glow catches any pixel above the threshold and blooms it outward,
+# giving the sun a natural atmospheric halo without any extra geometry.
+bpy.context.scene.use_nodes = True
+ctree = bpy.context.scene.node_tree
+cnodes = ctree.nodes
+clinks = ctree.links
+cnodes.clear()
+
+rl      = cnodes.new("CompositorNodeRLayers")
+rl.location = (-300, 0)
+glare   = cnodes.new("CompositorNodeGlare")
+glare.location = (0, 0)
+glare.glare_type = 'FOG_GLOW'
+glare.threshold  = 0.6    # pixels brighter than this get the halo
+glare.size       = 8      # 1–9; higher = wider glow (slower)
+glare.quality    = 'HIGH'
+comp    = cnodes.new("CompositorNodeComposite")
+comp.location = (300, 0)
+viewer  = cnodes.new("CompositorNodeViewer")
+viewer.location = (300, -150)
+
+clinks.new(rl.outputs["Image"], glare.inputs["Image"])
+clinks.new(glare.outputs["Image"], comp.inputs["Image"])
+clinks.new(glare.outputs["Image"], viewer.inputs["Image"])
 
 
 # ── MOUNTAIN RANGE ────────────────────────────────────────────────────────────
