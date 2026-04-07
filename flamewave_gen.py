@@ -772,9 +772,9 @@ def make_mountain_material():
         links.new(mapping.outputs["Vector"], n.inputs["Vector"])
         return n
 
-    tex_col  = mtn_img("Rock_Color.jpg",     "Rock Color",    350,  300)
-    tex_rgh  = mtn_img("Rock_Roughness.jpg", "Rock Roughness", 350,  100, "Non-Color")
-    tex_nrm  = mtn_img("Rock_NormalGL.jpg",  "Rock Normal",    350, -100, "Non-Color")
+    tex_col  = mtn_img("Rock050_2K-JPG_Color.jpg",     "Rock Color",     350,  300)
+    tex_rgh  = mtn_img("Rock050_2K-JPG_Roughness.jpg", "Rock Roughness", 350,  100, "Non-Color")
+    tex_nrm  = mtn_img("Rock050_2K-JPG_NormalGL.jpg",  "Rock Normal",    350, -100, "Non-Color")
 
     # Mix image color with procedural ramp (multiply keeps large-scale variation)
     mix_col = N("ShaderNodeMixRGB", 560, 300)
