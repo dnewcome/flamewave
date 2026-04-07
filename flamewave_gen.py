@@ -658,29 +658,30 @@ if 'NISHITA' not in sky_tex.bl_rna.properties['sky_type'].enum_items.keys():
 # Nishita handles atmospheric scattering natively — no world volume needed.
 
 # ── COMPOSITOR — glare/bloom on the sun ───────────────────────────────────────
-try:
-    bpy.context.scene.use_nodes = True
-    ctree = bpy.context.scene.node_tree
+bpy.context.scene.use_nodes = True
+ctree = getattr(bpy.context.scene, 'node_tree', None)
+if ctree is not None:
     cnodes = ctree.nodes
     clinks = ctree.links
     cnodes.clear()
 
-    rl    = cnodes.new("CompositorNodeRLayers");  rl.location    = (-300, 0)
-    glare = cnodes.new("CompositorNodeGlare");    glare.location = (0, 0)
+    rl    = cnodes.new("CompositorNodeRLayers");   rl.location   = (-300, 0)
+    glare = cnodes.new("CompositorNodeGlare");     glare.location = (0, 0)
     comp  = cnodes.new("CompositorNodeComposite"); comp.location  = (300, 0)
 
     glare.glare_type = 'FOG_GLOW'
     glare.threshold  = 0.6
     glare.size       = 8
-    try:
-        glare.quality = 'HIGH'
-    except (AttributeError, TypeError):
-        pass  # quality enum varies by version
+    for _attr, _val in [('quality', 'HIGH'), ('use_extended_limits', False)]:
+        try:
+            setattr(glare, _attr, _val)
+        except (AttributeError, TypeError):
+            pass
 
     clinks.new(rl.outputs["Image"],    glare.inputs["Image"])
     clinks.new(glare.outputs["Image"], comp.inputs["Image"])
-except Exception as e:
-    print(f"Compositor setup skipped: {e}")
+else:
+    print("Compositor: scene.node_tree unavailable — skipping glare setup")
 
 
 # ── MOUNTAIN RANGE ────────────────────────────────────────────────────────────
