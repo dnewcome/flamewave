@@ -605,19 +605,55 @@ if hasattr(sky_tex, 'sky_type'):
         sky_tex.ground_albedo = 0.35  # reflective alkali flat
 wlinks.new(sky_tex.outputs["Color"], w_out.inputs["Surface"])
 
-# Sun lamp — matches Nishita sky direction so shadows are consistent.
-# Use for EEVEE; Cycles can render directly from the sky texture.
+# Sun lamp — directional light matching sky sun direction.
 bpy.ops.object.light_add(type='SUN', location=(0, 0, 10))
 sun_lamp = bpy.context.object
 sun_lamp.name = "Sun"
 sun_lamp.data.energy = 5.0
-sun_lamp.data.color  = (1.0, 0.95, 0.82)   # warm late-afternoon tint
-sun_lamp.data.angle  = math.radians(0.53)   # solar disk angular size
+sun_lamp.data.color  = (1.0, 0.95, 0.82)
+sun_lamp.data.angle  = math.radians(0.53)
 sun_lamp.rotation_euler = (
     math.radians(90 - SUN_ELEVATION_DEG),
     0,
     math.radians(SUN_ROTATION_DEG + 90)
 )
+
+# Visible sun disk — Hosek-Wilkie has no built-in disk; Nishita does but
+# may not be available. An emissive sphere at the sun's position works in
+# both cases and is visible in Cycles and EEVEE.
+# Placed just inside the mountain ring so it clears the horizon.
+_sun_dist = MOUNTAIN_RADIUS * 0.92
+_sun_az   = math.radians(SUN_ROTATION_DEG + 180)   # +180: convention flip
+_sun_el   = math.radians(SUN_ELEVATION_DEG)
+_sun_pos  = (
+    _sun_dist * math.cos(_sun_el) * math.sin(_sun_az),
+    _sun_dist * math.cos(_sun_el) * math.cos(_sun_az),
+    _sun_dist * math.sin(_sun_el),
+)
+bpy.ops.mesh.primitive_uv_sphere_add(
+    radius=18, segments=16, ring_count=8, location=_sun_pos
+)
+sun_disk = bpy.context.object
+sun_disk.name = "Sun_Disk"
+sun_disk.cycles_visibility if hasattr(sun_disk, 'cycles_visibility') else None
+# Shadow-free — it's a visual stand-in only
+try:
+    sun_disk.visible_shadow = False
+except AttributeError:
+    try:
+        sun_disk.cycles_visibility.shadow = False
+    except AttributeError:
+        pass
+
+mat_sun = bpy.data.materials.new("Sun_Emission")
+mat_sun.use_nodes = True
+mat_sun.node_tree.nodes.clear()
+_sout = mat_sun.node_tree.nodes.new("ShaderNodeOutputMaterial")
+_semi = mat_sun.node_tree.nodes.new("ShaderNodeEmission")
+_semi.inputs["Color"].default_value   = (1.0, 0.97, 0.85, 1.0)   # warm white
+_semi.inputs["Strength"].default_value = 800.0                    # very bright
+mat_sun.node_tree.links.new(_semi.outputs["Emission"], _sout.inputs["Surface"])
+sun_disk.data.materials.append(mat_sun)
 
 
 # ── MOUNTAIN RANGE ────────────────────────────────────────────────────────────
@@ -637,17 +673,21 @@ random.seed(7)             # fixed seed for reproducible silhouette
 
 def make_mountain_material():
     """
-    Procedural Nevada Basin-and-Range rock material.
+    Nevada Basin-and-Range rock material.
 
-    Three noise layers at different scales:
-      - Large (0.02):  broad light/dark zones across the range face
-      - Medium (0.15): rocky surface variation, drives color mix
-      - Fine (0.8):    small surface roughness and bump detail
+    Uses image textures when available (drop Rock/Cliff packs from ambientCG
+    into a 'mountain-texture/' folder beside the .blend file). Falls back to
+    procedural noise when textures are missing — nodes are wired either way.
 
-    Colors are sampled from Black Rock Desert range photography:
-      - Dark basalt/rhyolite:   (0.12, 0.10, 0.09)
-      - Mid brown volcanic:     (0.28, 0.22, 0.16)
-      - Light tan/alkali dust:  (0.52, 0.46, 0.36)
+    Recommended ambientCG pack: Rock022 or Cliff001 (4K JPG)
+    Expected files:
+        mountain-texture/Rock_Color.jpg
+        mountain-texture/Rock_Roughness.jpg
+        mountain-texture/Rock_NormalGL.jpg
+
+    The procedural noise layers stay active and are multiplied with the
+    image texture when present, adding large-scale variation so the texture
+    doesn't tile obviously across 700m of mountain ring.
     """
     m = bpy.data.materials.new("Mountains")
     m.use_nodes = True
@@ -702,34 +742,71 @@ def make_mountain_material():
     links.new(noise_lg.outputs["Fac"], mix_noise.inputs["Color1"])
     links.new(noise_md.outputs["Fac"], mix_noise.inputs["Color2"])
 
-    # ── Color ramp — dark basalt → mid brown → light alkali dust ──
-    ramp = N("ShaderNodeValToRGB", 120, 200)
+    # ── Procedural color ramp — dark basalt → mid brown → light alkali dust ──
+    ramp = N("ShaderNodeValToRGB", 120, 300)
     ramp.color_ramp.interpolation = 'EASE'
     els = ramp.color_ramp.elements
-    els[0].position = 0.0;  els[0].color = (0.12, 0.10, 0.09, 1.0)  # dark basalt
-    els.new(0.35);           els[1].color = (0.22, 0.17, 0.13, 1.0)  # shadow rock
-    els.new(0.62);           els[2].color = (0.30, 0.24, 0.17, 1.0)  # mid brown
-    els.new(0.82);           els[3].color = (0.44, 0.37, 0.27, 1.0)  # warm tan
-    els[4].position = 1.0;  els[4].color = (0.54, 0.48, 0.37, 1.0)  # alkali dust on ridgeline
+    els[0].position = 0.0;  els[0].color = (0.12, 0.10, 0.09, 1.0)
+    els.new(0.35);           els[1].color = (0.22, 0.17, 0.13, 1.0)
+    els.new(0.62);           els[2].color = (0.30, 0.24, 0.17, 1.0)
+    els.new(0.82);           els[3].color = (0.44, 0.37, 0.27, 1.0)
+    els[4].position = 1.0;  els[4].color = (0.54, 0.48, 0.37, 1.0)
     links.new(mix_noise.outputs["Color"], ramp.inputs["Fac"])
-    links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
 
-    # ── Roughness — fine noise drives surface texture variation ──
-    rough_ramp = N("ShaderNodeValToRGB", 120, -50)
-    rough_ramp.color_ramp.interpolation = 'LINEAR'
-    rough_ramp.color_ramp.elements[0].position = 0.0
-    rough_ramp.color_ramp.elements[0].color    = (0.72, 0.72, 0.72, 1.0)  # smooth face
-    rough_ramp.color_ramp.elements[1].position = 1.0
-    rough_ramp.color_ramp.elements[1].color    = (0.95, 0.95, 0.95, 1.0)  # rough crevice
+    # ── Image texture (optional) — drop Rock/Cliff pack into mountain-texture/ ──
+    import os
+    _blend_dir = os.path.dirname(bpy.data.filepath)
+    _repo      = _blend_dir or "/home/dan/sandbox/dnewcome/flamewave"
+    _mtn_dir   = os.path.join(_repo, "mountain-texture")
+
+    def mtn_img(fname, label, x, y, colorspace="sRGB"):
+        n = N("ShaderNodeTexImage", x, y)
+        n.label = label
+        try:
+            img = bpy.data.images.load(os.path.join(_mtn_dir, fname), check_existing=True)
+            img.colorspace_settings.name = colorspace
+            n.image = img
+        except Exception:
+            pass
+        # Use triplanar-style object coords for seamless wrapping on the ring
+        links.new(mapping.outputs["Vector"], n.inputs["Vector"])
+        return n
+
+    tex_col  = mtn_img("Rock_Color.jpg",     "Rock Color",    350,  300)
+    tex_rgh  = mtn_img("Rock_Roughness.jpg", "Rock Roughness", 350,  100, "Non-Color")
+    tex_nrm  = mtn_img("Rock_NormalGL.jpg",  "Rock Normal",    350, -100, "Non-Color")
+
+    # Mix image color with procedural ramp (multiply keeps large-scale variation)
+    mix_col = N("ShaderNodeMixRGB", 560, 300)
+    mix_col.blend_type = 'MULTIPLY'
+    mix_col.inputs["Fac"].default_value = 1.0   # set to 0 to use procedural only
+    links.new(ramp.outputs["Color"],       mix_col.inputs["Color1"])
+    links.new(tex_col.outputs["Color"],    mix_col.inputs["Color2"])
+    links.new(mix_col.outputs["Color"],    bsdf.inputs["Base Color"])
+
+    # Roughness — image if loaded, else noise
+    rough_ramp = N("ShaderNodeValToRGB", 120, 100)
+    rough_ramp.color_ramp.elements[0].color = (0.72, 0.72, 0.72, 1.0)
+    rough_ramp.color_ramp.elements[1].color = (0.95, 0.95, 0.95, 1.0)
     links.new(noise_sm.outputs["Fac"], rough_ramp.inputs["Fac"])
-    links.new(rough_ramp.outputs["Color"], bsdf.inputs["Roughness"])
+    mix_rgh = N("ShaderNodeMixRGB", 560, 100)
+    mix_rgh.blend_type = 'MIX'
+    mix_rgh.inputs["Fac"].default_value = 1.0
+    links.new(rough_ramp.outputs["Color"], mix_rgh.inputs["Color1"])
+    links.new(tex_rgh.outputs["Color"],    mix_rgh.inputs["Color2"])
+    links.new(mix_rgh.outputs["Color"],    bsdf.inputs["Roughness"])
 
-    # ── Bump from fine noise — surface micro-relief ──
-    bump = N("ShaderNodeBump", 350, -150)
-    bump.inputs["Strength"].default_value  = 0.6
-    bump.inputs["Distance"].default_value  = 0.8
-    links.new(noise_sm.outputs["Fac"], bump.inputs["Height"])
-    links.new(bump.outputs["Normal"],  bsdf.inputs["Normal"])
+    # Normal — image normal map + procedural bump combined
+    normal_map = N("ShaderNodeNormalMap", 560, -100)
+    normal_map.inputs["Strength"].default_value = 1.2
+    links.new(tex_nrm.outputs["Color"], normal_map.inputs["Color"])
+
+    bump = N("ShaderNodeBump", 560, -280)
+    bump.inputs["Strength"].default_value  = 0.4
+    bump.inputs["Distance"].default_value  = 0.5
+    links.new(noise_sm.outputs["Fac"],      bump.inputs["Height"])
+    links.new(normal_map.outputs["Normal"], bump.inputs["Normal"])
+    links.new(bump.outputs["Normal"],       bsdf.inputs["Normal"])
 
     return m
 
