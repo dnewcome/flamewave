@@ -708,7 +708,7 @@ def make_mountain_material():
     # Object coordinates — noise maps naturally onto the 3D mountain shape
     coord   = N("ShaderNodeTexCoord", -800, 100)
     mapping = N("ShaderNodeMapping",  -600, 100)
-    mapping.inputs["Scale"].default_value = (0.008, 0.008, 0.008)
+    mapping.inputs["Scale"].default_value = (0.02, 0.02, 0.02)   # ~50m per tile on mountains
     links.new(coord.outputs["Object"], mapping.inputs["Vector"])
 
     # ── Large-scale zone noise — broad light/shadow banding on the range ──
@@ -762,13 +762,14 @@ def make_mountain_material():
     def mtn_img(fname, label, x, y, colorspace="sRGB"):
         n = N("ShaderNodeTexImage", x, y)
         n.label = label
+        n.projection       = 'BOX'   # triplanar — no vertical streaking on curved walls
+        n.projection_blend = 0.2     # blend width between projection axes
         try:
             img = bpy.data.images.load(os.path.join(_mtn_dir, fname), check_existing=True)
             img.colorspace_settings.name = colorspace
             n.image = img
         except Exception:
             pass
-        # Use triplanar-style object coords for seamless wrapping on the ring
         links.new(mapping.outputs["Vector"], n.inputs["Vector"])
         return n
 
