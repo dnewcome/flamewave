@@ -655,24 +655,7 @@ if 'NISHITA' not in sky_tex.bl_rna.properties['sky_type'].enum_items.keys():
     mat_sun.node_tree.links.new(_semi.outputs["Emission"], _sout.inputs["Surface"])
     sun_disk.data.materials.append(mat_sun)
 
-# ── ATMOSPHERIC HAZE — world volume scatter ───────────────────────────────────
-# Adds a small amount of volumetric scatter to the world shader so the sky
-# has depth and the sun creates a visible glow in the atmosphere.
-# HAZE_DENSITY: keep very low — 0.002–0.006 for desert, higher = thick fog.
-world = bpy.context.scene.world
-world.use_nodes = True
-_wt = world.node_tree
-_wout = next(n for n in _wt.nodes if n.type == 'OUTPUT_WORLD')
-_scatter = _wt.nodes.new("ShaderNodeVolumeScatter")
-_scatter.inputs["Color"].default_value   = (0.85, 0.88, 1.0, 1.0)  # slight blue sky tint
-_scatter.inputs["Density"].default_value = 0.003                    # light desert haze
-_wadd = _wt.nodes.new("ShaderNodeAddShader")
-_wadd.location = (200, -100)
-_scatter.location = (0, -100)
-if _wout.inputs["Volume"].links:
-    _wt.links.new(_wout.inputs["Volume"].links[0].from_socket, _wadd.inputs[0])
-_wt.links.new(_scatter.outputs["Volume"], _wadd.inputs[1])
-_wt.links.new(_wadd.outputs["Shader"], _wout.inputs["Volume"])
+# Nishita handles atmospheric scattering natively — no world volume needed.
 
 # ── COMPOSITOR — glare/bloom on the sun ───────────────────────────────────────
 # Fog Glow catches any pixel above the threshold and blooms it outward,
