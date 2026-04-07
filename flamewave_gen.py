@@ -588,21 +588,28 @@ sky_tex = wnodes.new("ShaderNodeTexSky")
 sky_tex.location = (0, 0)
 # Nishita (2.90+) gives the most accurate desert sky; fall back to
 # Hosek-Wilkie which is physically-based and available in all versions.
-if hasattr(sky_tex, 'sky_type'):
-    if 'NISHITA' in sky_tex.bl_rna.properties['sky_type'].enum_items.keys():
-        sky_tex.sky_type      = 'NISHITA'
-        sky_tex.sun_elevation = math.radians(SUN_ELEVATION_DEG)
-        sky_tex.sun_rotation  = math.radians(SUN_ROTATION_DEG)
-        sky_tex.air_density   = AIR_DENSITY
-        sky_tex.dust_density  = DUST_DENSITY
-        sky_tex.ozone_density = OZONE_DENSITY
-    else:
-        # Hosek-Wilkie fallback (pre-2.90 or custom builds)
-        sky_tex.sky_type      = 'HOSEK_WILKIE'
-        sky_tex.sun_elevation = math.radians(SUN_ELEVATION_DEG)
-        sky_tex.sun_rotation  = math.radians(SUN_ROTATION_DEG)
-        sky_tex.turbidity     = 4.0   # 2=crystal clear → 10=very hazy; 4 ≈ playa dust
-        sky_tex.ground_albedo = 0.35  # reflective alkali flat
+sky_types = sky_tex.bl_rna.properties['sky_type'].enum_items.keys()
+if 'NISHITA' in sky_types:
+    sky_tex.sky_type      = 'NISHITA'
+    sky_tex.sun_elevation = math.radians(SUN_ELEVATION_DEG)
+    sky_tex.sun_rotation  = math.radians(SUN_ROTATION_DEG)
+    sky_tex.air_density   = AIR_DENSITY
+    sky_tex.dust_density  = DUST_DENSITY
+    sky_tex.ozone_density = OZONE_DENSITY
+    # Built-in sun disk with atmospheric scattering — no emissive sphere needed
+    try:
+        sky_tex.sun_disc      = True
+        sky_tex.sun_size      = math.radians(0.545)   # real solar angular diameter
+        sky_tex.sun_intensity = 1.0
+    except AttributeError:
+        pass
+else:
+    # Hosek-Wilkie fallback (pre-2.90)
+    sky_tex.sky_type      = 'HOSEK_WILKIE'
+    sky_tex.sun_elevation = math.radians(SUN_ELEVATION_DEG)
+    sky_tex.sun_rotation  = math.radians(SUN_ROTATION_DEG)
+    sky_tex.turbidity     = 4.0
+    sky_tex.ground_albedo = 0.35
 wlinks.new(sky_tex.outputs["Color"], w_out.inputs["Surface"])
 
 # Sun lamp — directional light matching sky sun direction.
@@ -618,40 +625,35 @@ sun_lamp.rotation_euler = (
     math.radians(SUN_ROTATION_DEG + 90)
 )
 
-# Visible sun disk — Hosek-Wilkie has no built-in disk; Nishita does but
-# may not be available. An emissive sphere at the sun's position works in
-# both cases and is visible in Cycles and EEVEE.
-# Placed just inside the mountain ring so it clears the horizon.
-_sun_dist = MOUNTAIN_RADIUS * 0.92
-_sun_az   = math.radians(SUN_ROTATION_DEG + 180)   # +180: convention flip
-_sun_el   = math.radians(SUN_ELEVATION_DEG)
-_sun_pos  = (
-    _sun_dist * math.cos(_sun_el) * math.sin(_sun_az),
-    _sun_dist * math.cos(_sun_el) * math.cos(_sun_az),
-    _sun_dist * math.sin(_sun_el),
-)
-bpy.ops.mesh.primitive_uv_sphere_add(
-    radius=18, segments=64, ring_count=32, location=_sun_pos
-)
-sun_disk = bpy.context.object
-sun_disk.name = "Sun_Disk"
-try:
-    sun_disk.visible_shadow = False
-except AttributeError:
+# Sun disk is rendered by Nishita sky texture (sun_disc=True above).
+# Emissive sphere fallback only needed if Nishita is unavailable.
+if 'NISHITA' not in sky_tex.bl_rna.properties['sky_type'].enum_items.keys():
+    _sun_dist = MOUNTAIN_RADIUS * 0.92
+    _sun_az   = math.radians(SUN_ROTATION_DEG + 180)
+    _sun_el   = math.radians(SUN_ELEVATION_DEG)
+    _sun_pos  = (
+        _sun_dist * math.cos(_sun_el) * math.sin(_sun_az),
+        _sun_dist * math.cos(_sun_el) * math.cos(_sun_az),
+        _sun_dist * math.sin(_sun_el),
+    )
+    bpy.ops.mesh.primitive_uv_sphere_add(
+        radius=18, segments=64, ring_count=32, location=_sun_pos
+    )
+    sun_disk = bpy.context.object
+    sun_disk.name = "Sun_Disk"
     try:
-        sun_disk.cycles_visibility.shadow = False
+        sun_disk.visible_shadow = False
     except AttributeError:
         pass
-
-mat_sun = bpy.data.materials.new("Sun_Emission")
-mat_sun.use_nodes = True
-mat_sun.node_tree.nodes.clear()
-_sout = mat_sun.node_tree.nodes.new("ShaderNodeOutputMaterial")
-_semi = mat_sun.node_tree.nodes.new("ShaderNodeEmission")
-_semi.inputs["Color"].default_value    = (1.0, 0.97, 0.85, 1.0)
-_semi.inputs["Strength"].default_value = 600.0
-mat_sun.node_tree.links.new(_semi.outputs["Emission"], _sout.inputs["Surface"])
-sun_disk.data.materials.append(mat_sun)
+    mat_sun = bpy.data.materials.new("Sun_Emission")
+    mat_sun.use_nodes = True
+    mat_sun.node_tree.nodes.clear()
+    _sout = mat_sun.node_tree.nodes.new("ShaderNodeOutputMaterial")
+    _semi = mat_sun.node_tree.nodes.new("ShaderNodeEmission")
+    _semi.inputs["Color"].default_value    = (1.0, 0.97, 0.85, 1.0)
+    _semi.inputs["Strength"].default_value = 600.0
+    mat_sun.node_tree.links.new(_semi.outputs["Emission"], _sout.inputs["Surface"])
+    sun_disk.data.materials.append(mat_sun)
 
 # ── ATMOSPHERIC HAZE — world volume scatter ───────────────────────────────────
 # Adds a small amount of volumetric scatter to the world shader so the sky
