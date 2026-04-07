@@ -705,11 +705,11 @@ def make_mountain_material():
     bsdf.inputs["Metallic"].default_value  = 0.0
     links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
 
-    # Object coordinates — noise maps naturally onto the 3D mountain shape
+    # UV coordinates — cylindrical UVs baked into the mesh at generation time
     coord   = N("ShaderNodeTexCoord", -800, 100)
     mapping = N("ShaderNodeMapping",  -600, 100)
-    mapping.inputs["Scale"].default_value = (0.02, 0.02, 0.02)   # ~50m per tile on mountains
-    links.new(coord.outputs["Object"], mapping.inputs["Vector"])
+    mapping.inputs["Scale"].default_value = (1.0, 1.0, 1.0)
+    links.new(coord.outputs["UV"], mapping.inputs["Vector"])
 
     # ── Large-scale zone noise — broad light/shadow banding on the range ──
     noise_lg = N("ShaderNodeTexNoise", -350, 300)
@@ -762,8 +762,7 @@ def make_mountain_material():
     def mtn_img(fname, label, x, y, colorspace="sRGB"):
         n = N("ShaderNodeTexImage", x, y)
         n.label = label
-        n.projection       = 'BOX'   # triplanar — no vertical streaking on curved walls
-        n.projection_blend = 0.2     # blend width between projection axes
+        n.projection = 'FLAT'   # cylindrical UVs handle wrapping correctly
         try:
             img = bpy.data.images.load(os.path.join(_mtn_dir, fname), check_existing=True)
             img.colorspace_settings.name = colorspace
@@ -827,19 +826,44 @@ def mountain_height(angle):
 
 mesh_mtns = bpy.data.meshes.new("Mountain_Range")
 bm = bmesh.new()
+uv_layer = bm.loops.layers.uv.new("UVMap")
+
+# Tile the texture every MTN_TEX_TILE_M metres along the ring circumference
+MTN_TEX_TILE_M = 40.0
+circumference  = 2 * math.pi * MOUNTAIN_RADIUS
+max_h          = 60.0   # approximate max mountain height for V normalisation
 
 verts_bot, verts_top = [], []
+heights = []
 for i in range(MOUNTAIN_SEGMENTS):
     a = 2 * math.pi * i / MOUNTAIN_SEGMENTS
     x = MOUNTAIN_RADIUS * math.cos(a)
     y = MOUNTAIN_RADIUS * math.sin(a)
+    h = mountain_height(a)
+    heights.append(h)
     verts_bot.append(bm.verts.new((x, y, MOUNTAIN_BASE_Z)))
-    verts_top.append(bm.verts.new((x, y, mountain_height(a))))
+    verts_top.append(bm.verts.new((x, y, h)))
 
 bm.verts.ensure_lookup_table()
+
 for i in range(MOUNTAIN_SEGMENTS):
     j = (i + 1) % MOUNTAIN_SEGMENTS
-    bm.faces.new([verts_bot[i], verts_bot[j], verts_top[j], verts_top[i]])
+
+    # U: arc distance along ring, tiled every MTN_TEX_TILE_M metres
+    u0 = (i / MOUNTAIN_SEGMENTS * circumference) / MTN_TEX_TILE_M
+    u1 = (j / MOUNTAIN_SEGMENTS * circumference) / MTN_TEX_TILE_M
+
+    # V: 0 at bottom, 1 at approximate max height
+    v_bot0 = 0.0
+    v_top0 = heights[i]  / max_h
+    v_bot1 = 0.0
+    v_top1 = heights[j]  / max_h
+
+    face = bm.faces.new([verts_bot[i], verts_bot[j], verts_top[j], verts_top[i]])
+    face.loops[0][uv_layer].uv = (u0, v_bot0)
+    face.loops[1][uv_layer].uv = (u1, v_bot1)
+    face.loops[2][uv_layer].uv = (u1, v_top1)
+    face.loops[3][uv_layer].uv = (u0, v_top0)
 
 bm.to_mesh(mesh_mtns)
 bm.free()
