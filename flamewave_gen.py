@@ -774,11 +774,11 @@ def make_mountain_material():
     ramp = N("ShaderNodeValToRGB", 120, 300)
     ramp.color_ramp.interpolation = 'EASE'
     els = ramp.color_ramp.elements
-    els[0].position = 0.0;  els[0].color = (0.12, 0.10, 0.09, 1.0)
-    els.new(0.35);           els[1].color = (0.22, 0.17, 0.13, 1.0)
-    els.new(0.62);           els[2].color = (0.30, 0.24, 0.17, 1.0)
-    els.new(0.82);           els[3].color = (0.44, 0.37, 0.27, 1.0)
-    els[4].position = 1.0;  els[4].color = (0.54, 0.48, 0.37, 1.0)
+    els[0].position = 0.0;  els[0].color = (0.05, 0.04, 0.03, 1.0)
+    els.new(0.35);           els[1].color = (0.10, 0.08, 0.06, 1.0)
+    els.new(0.62);           els[2].color = (0.16, 0.12, 0.09, 1.0)
+    els.new(0.82);           els[3].color = (0.24, 0.19, 0.13, 1.0)
+    els[4].position = 1.0;  els[4].color = (0.32, 0.27, 0.20, 1.0)
     links.new(mix_noise.outputs["Color"], ramp.inputs["Fac"])
 
     # ── Image texture (optional) — drop Rock/Cliff pack into mountain-texture/ ──
