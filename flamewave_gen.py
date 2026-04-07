@@ -634,6 +634,106 @@ MOUNTAIN_BASE_Z   = -3.0   # below ground so bottom edge never shows
 
 random.seed(7)             # fixed seed for reproducible silhouette
 
+
+def make_mountain_material():
+    """
+    Procedural Nevada Basin-and-Range rock material.
+
+    Three noise layers at different scales:
+      - Large (0.02):  broad light/dark zones across the range face
+      - Medium (0.15): rocky surface variation, drives color mix
+      - Fine (0.8):    small surface roughness and bump detail
+
+    Colors are sampled from Black Rock Desert range photography:
+      - Dark basalt/rhyolite:   (0.12, 0.10, 0.09)
+      - Mid brown volcanic:     (0.28, 0.22, 0.16)
+      - Light tan/alkali dust:  (0.52, 0.46, 0.36)
+    """
+    m = bpy.data.materials.new("Mountains")
+    m.use_nodes = True
+    nodes = m.node_tree.nodes
+    links = m.node_tree.links
+    nodes.clear()
+
+    def N(t, x, y):
+        n = nodes.new(t)
+        n.location = (x, y)
+        return n
+
+    out  = N("ShaderNodeOutputMaterial", 900, 0)
+    bsdf = N("ShaderNodeBsdfPrincipled", 550, 0)
+    bsdf.inputs["Metallic"].default_value  = 0.0
+    links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+
+    # Object coordinates — noise maps naturally onto the 3D mountain shape
+    coord   = N("ShaderNodeTexCoord", -800, 100)
+    mapping = N("ShaderNodeMapping",  -600, 100)
+    mapping.inputs["Scale"].default_value = (0.008, 0.008, 0.008)
+    links.new(coord.outputs["Object"], mapping.inputs["Vector"])
+
+    # ── Large-scale zone noise — broad light/shadow banding on the range ──
+    noise_lg = N("ShaderNodeTexNoise", -350, 300)
+    noise_lg.inputs["Scale"].default_value      = 0.8
+    noise_lg.inputs["Detail"].default_value     = 4.0
+    noise_lg.inputs["Roughness"].default_value  = 0.6
+    noise_lg.inputs["Distortion"].default_value = 0.2
+    links.new(mapping.outputs["Vector"], noise_lg.inputs["Vector"])
+
+    # ── Medium rock texture noise — primary color variation ──
+    noise_md = N("ShaderNodeTexNoise", -350, 100)
+    noise_md.inputs["Scale"].default_value      = 4.0
+    noise_md.inputs["Detail"].default_value     = 8.0
+    noise_md.inputs["Roughness"].default_value  = 0.7
+    noise_md.inputs["Distortion"].default_value = 0.4
+    links.new(mapping.outputs["Vector"], noise_md.inputs["Vector"])
+
+    # ── Fine surface noise — roughness variation and bump ──
+    noise_sm = N("ShaderNodeTexNoise", -350, -100)
+    noise_sm.inputs["Scale"].default_value      = 18.0
+    noise_sm.inputs["Detail"].default_value     = 12.0
+    noise_sm.inputs["Roughness"].default_value  = 0.75
+    noise_sm.inputs["Distortion"].default_value = 0.1
+    links.new(mapping.outputs["Vector"], noise_sm.inputs["Vector"])
+
+    # Mix large + medium noise to get overall color driver
+    mix_noise = N("ShaderNodeMixRGB", -100, 200)
+    mix_noise.blend_type = 'MULTIPLY'
+    mix_noise.inputs["Fac"].default_value = 0.6
+    links.new(noise_lg.outputs["Fac"], mix_noise.inputs["Color1"])
+    links.new(noise_md.outputs["Fac"], mix_noise.inputs["Color2"])
+
+    # ── Color ramp — dark basalt → mid brown → light alkali dust ──
+    ramp = N("ShaderNodeValToRGB", 120, 200)
+    ramp.color_ramp.interpolation = 'EASE'
+    els = ramp.color_ramp.elements
+    els[0].position = 0.0;  els[0].color = (0.12, 0.10, 0.09, 1.0)  # dark basalt
+    els.new(0.35);           els[1].color = (0.22, 0.17, 0.13, 1.0)  # shadow rock
+    els.new(0.62);           els[2].color = (0.30, 0.24, 0.17, 1.0)  # mid brown
+    els.new(0.82);           els[3].color = (0.44, 0.37, 0.27, 1.0)  # warm tan
+    els[4].position = 1.0;  els[4].color = (0.54, 0.48, 0.37, 1.0)  # alkali dust on ridgeline
+    links.new(mix_noise.outputs["Color"], ramp.inputs["Fac"])
+    links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
+
+    # ── Roughness — fine noise drives surface texture variation ──
+    rough_ramp = N("ShaderNodeValToRGB", 120, -50)
+    rough_ramp.color_ramp.interpolation = 'LINEAR'
+    rough_ramp.color_ramp.elements[0].position = 0.0
+    rough_ramp.color_ramp.elements[0].color    = (0.72, 0.72, 0.72, 1.0)  # smooth face
+    rough_ramp.color_ramp.elements[1].position = 1.0
+    rough_ramp.color_ramp.elements[1].color    = (0.95, 0.95, 0.95, 1.0)  # rough crevice
+    links.new(noise_sm.outputs["Fac"], rough_ramp.inputs["Fac"])
+    links.new(rough_ramp.outputs["Color"], bsdf.inputs["Roughness"])
+
+    # ── Bump from fine noise — surface micro-relief ──
+    bump = N("ShaderNodeBump", 350, -150)
+    bump.inputs["Strength"].default_value  = 0.6
+    bump.inputs["Distance"].default_value  = 0.8
+    links.new(noise_sm.outputs["Fac"], bump.inputs["Height"])
+    links.new(bump.outputs["Normal"],  bsdf.inputs["Normal"])
+
+    return m
+
+
 def mountain_height(angle):
     """Sum of sine waves giving a low, lumpy Nevada ridgeline profile."""
     h = (
@@ -668,9 +768,7 @@ bm.free()
 
 obj_mtns = bpy.data.objects.new("Mountain_Range", mesh_mtns)
 bpy.context.collection.objects.link(obj_mtns)
-
-mat_mtns = mat("Mountains", (0.22, 0.20, 0.17), metallic=0.0, roughness=0.92)
-assign_mat(obj_mtns, mat_mtns)
+assign_mat(obj_mtns, make_mountain_material())
 
 
 # ── CLOUDS ────────────────────────────────────────────────────────────────────
