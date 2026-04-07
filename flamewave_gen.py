@@ -49,6 +49,14 @@ for col in list(bpy.data.collections):
 bpy.context.scene.unit_settings.system = 'METRIC'
 bpy.context.scene.unit_settings.length_unit = 'METERS'
 
+# Cycles experimental — enables adaptive subdivision on the ground plane.
+# Switch render engine to Cycles if not already set.
+bpy.context.scene.render.engine = 'CYCLES'
+bpy.context.scene.cycles.feature_set = 'EXPERIMENTAL'
+bpy.context.scene.cycles.dicing_rate = 2.0        # 2px/edge — good perf on 4070
+bpy.context.scene.cycles.offscreen_dicing_scale = 4.0  # don't waste on off-screen geo
+bpy.context.scene.cycles.device = 'GPU'
+
 
 # ── MATERIALS ─────────────────────────────────────────────────────────────────
 
@@ -102,6 +110,11 @@ def make_playa_material():
     COLOR_TEX  = os.path.join(_tex_dir, "Ground031_1K-JPG_Color.jpg")
     ROUGH_TEX  = os.path.join(_tex_dir, "Ground031_1K-JPG_Roughness.jpg")
     NORMAL_TEX = os.path.join(_tex_dir, "Ground031_1K-JPG_NormalGL.jpg")
+    DISP_TEX   = os.path.join(_tex_dir, "Ground031_1K-JPG_Displacement.jpg")
+
+    # Displacement scale in metres — playa cracks are shallow, 1–2cm deep
+    DISP_SCALE  = 0.015
+    DISP_MIDLEVEL = 0.5   # grey = no displacement
 
     # Overall UV scale — higher = texture tiles more densely
     TEX_SCALE       = 8.0
@@ -167,23 +180,33 @@ def make_playa_material():
         links.new(add_offset.outputs["Vector"], n.inputs["Vector"])
         return n
 
-    tex_color  = img_node(COLOR_TEX,  "Playa Color",    100,  200)
-    tex_rough  = img_node(ROUGH_TEX,  "Playa Roughness", 100,   0, colorspace="Non-Color")
-    tex_normal = img_node(NORMAL_TEX, "Playa Normal",    100, -200, colorspace="Non-Color")
+    tex_color  = img_node(COLOR_TEX,  "Playa Color",       100,  200)
+    tex_rough  = img_node(ROUGH_TEX,  "Playa Roughness",   100,    0, colorspace="Non-Color")
+    tex_normal = img_node(NORMAL_TEX, "Playa Normal",      100, -200, colorspace="Non-Color")
+    tex_disp   = img_node(DISP_TEX,   "Playa Displacement", 100, -400, colorspace="Non-Color")
 
     # ── Normal map ──
-    normal_map = N("ShaderNodeNormalMap",  350, -150)
+    normal_map = N("ShaderNodeNormalMap", 350, -150)
     normal_map.inputs["Strength"].default_value = 0.6
     links.new(tex_normal.outputs["Color"], normal_map.inputs["Color"])
 
-    # ── Wire into BSDF ──
-    links.new(tex_color.outputs["Color"],  bsdf.inputs["Base Color"])
-    links.new(tex_rough.outputs["Color"],  bsdf.inputs["Roughness"])
-    links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+    # ── Displacement (Cycles only — ignored by EEVEE) ──
+    disp_node = N("ShaderNodeDisplacement", 350, -350)
+    disp_node.inputs["Scale"].default_value    = DISP_SCALE
+    disp_node.inputs["Midlevel"].default_value = DISP_MIDLEVEL
+    links.new(tex_disp.outputs["Color"], disp_node.inputs["Height"])
 
-    # Playa is very non-metallic, slightly subsurface-ish
+    # ── Wire into BSDF and Output ──
+    links.new(tex_color.outputs["Color"],   bsdf.inputs["Base Color"])
+    links.new(tex_rough.outputs["Color"],   bsdf.inputs["Roughness"])
+    links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+    links.new(disp_node.outputs["Displacement"], out.inputs["Displacement"])
+
+    # Enable true displacement on the material (not just bump)
+    m.cycles.displacement_method = 'DISPLACEMENT'
+
     bsdf.inputs["Metallic"].default_value  = 0.0
-    bsdf.inputs["Roughness"].default_value = 0.9  # fallback if texture missing
+    bsdf.inputs["Roughness"].default_value = 0.9
 
     return m
 
@@ -255,6 +278,15 @@ bpy.ops.mesh.primitive_plane_add(size=25, location=(0, 0, 0))
 ground = bpy.context.object
 ground.name = "Playa"
 assign_mat(ground, MAT_PLAYA)
+
+# Adaptive subdivision — Cycles tessellates only what the camera sees.
+# Requires Cycles + Experimental feature set (set below).
+# DICING_RATE: higher = fewer polygons = faster but coarser cracks.
+# 2.0 is a good balance on a 4070; drop to 1.0 for final renders.
+sub = ground.modifiers.new("Adaptive_Subdiv", 'SUBSURF')
+sub.subdivision_type = 'SIMPLE'   # flat ground doesn't need Catmull-Clark smoothing
+sub.levels = 0                     # viewport — keep low for responsiveness
+sub.render_levels = 6              # fallback for non-Cycles renders
 
 
 # ── CENTER POST ───────────────────────────────────────────────────────────────
